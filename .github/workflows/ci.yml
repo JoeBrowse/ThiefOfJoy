@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  app:
+    name: Lint, typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          # Placeholder values: the build doesn't contact Supabase.
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+  database:
+    name: Migrations & scoring tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start local Supabase (applies all migrations)
+        run: npm run db:start
+      - name: Check content migration is in sync with categories.ts
+        run: |
+          node --no-warnings scripts/generate-seed.mts /tmp/sync.sql
+          diff <(tail -n +2 /tmp/sync.sql) <(tail -n +2 "$(ls supabase/migrations/*_sync_content.sql | tail -1)") \
+            || (echo "::error::Run 'npm run db:generate-seed' after editing src/lib/content/categories.ts" && exit 1)
+      - name: Scoring, leaderboard & RLS smoke test
+        run: npm run db:test
